@@ -1,7 +1,6 @@
 import * as ort from 'onnxruntime-web';
 import { ONNXModule } from './onnxHelper.js';
 import { Observations } from './observationHelpers.js';
-import { TrackingHelper } from './trackingHelper.js';
 import { toFloatArray } from './utils/math.js';
 
 export class PolicyRunner {
@@ -21,14 +20,15 @@ export class PolicyRunner {
     this.inputDict = {};
     this.isInferencing = false;
     this.lastActions = new Float32Array(this.numActions);
+    this.velocityCommand = new Float32Array(3); // [vx, vy, wz] for velocity policies
+
+    // Low-pass filter on actions (matches deploy_asimov.py --lpf_cutoff 10)
+    const lpfCfg = config.lpf_cutoff ?? (config.robot_type === 'asimov_velocity' ? 10.0 : 0);
+    this.lpfCutoff = lpfCfg > 0 ? lpfCfg : 0;
+    this.lpfCtrlDt = 0.02; // SIMULATION_DT * CONTROL_DECIMATION = 0.005 * 4
+    this.lpfYLast = new Float32Array(this.numActions);
 
     this.tracking = null;
-    if (config.tracking) {
-      this.tracking = new TrackingHelper({
-        ...config.tracking,
-        policy_joint_names: this.policyJointNames
-      });
-    }
 
     this.obsModules = this._buildObsModules(config.obs_config);
     this.numObs = this.obsModules.reduce((sum, obs) => sum + (obs.size ?? 0), 0);
@@ -55,6 +55,7 @@ export class PolicyRunner {
   reset(state = null) {
     this.inputDict = this.module.initInput() ?? {};
     this.lastActions.fill(0.0);
+    this.lpfYLast.fill(0.0);
     if (this.tracking) {
       this.tracking.reset(state);
     }
@@ -92,12 +93,16 @@ export class PolicyRunner {
         offset += obsArray.length;
       }
 
-      this.inputDict['policy'] = new ort.Tensor('float32', obsForPolicy, [1, obsForPolicy.length]);
+      const inputKey = this.config.onnx?.meta?.in_keys?.[0] ?? 'policy';
+      this.inputDict[inputKey] = new ort.Tensor('float32', obsForPolicy, [1, obsForPolicy.length]);
 
       const [result, carry] = await this.module.runInference(this.inputDict);
       this.inputDict = { ...this.inputDict, ...carry };
 
-      const action = result['action']?.data;
+      const actionKey = (this.config.onnx?.meta?.out_keys ?? []).find(
+        (k) => k === 'action' || k === 'actions'
+      ) ?? 'action';
+      const action = result[actionKey]?.data;
       if (!action || action.length !== this.numActions) {
         throw new Error('PolicyRunner received invalid action output');
       }
@@ -105,8 +110,17 @@ export class PolicyRunner {
       const clip = typeof this.actionClip === 'number' ? this.actionClip : Infinity;
       for (let i = 0; i < this.numActions; i++) {
         const value = action[i];
-        const clamped = clip !== Infinity ? Math.max(-clip, Math.min(clip, value)) : value;
-        this.lastActions[i] = clamped;
+        this.lastActions[i] = clip !== Infinity ? Math.max(-clip, Math.min(clip, value)) : value;
+      }
+
+      // One-pole low-pass filter: y = y_last + alpha * (x - y_last)
+      if (this.lpfCutoff > 0) {
+        const rc = 1.0 / (2.0 * Math.PI * this.lpfCutoff);
+        const alpha = this.lpfCtrlDt / (rc + this.lpfCtrlDt);
+        for (let i = 0; i < this.numActions; i++) {
+          this.lastActions[i] = this.lpfYLast[i] + alpha * (this.lastActions[i] - this.lpfYLast[i]);
+          this.lpfYLast[i] = this.lastActions[i];
+        }
       }
 
       const target = new Float32Array(this.numActions);

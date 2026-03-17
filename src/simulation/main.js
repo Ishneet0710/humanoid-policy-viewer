@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DragStateManager } from './utils/DragStateManager.js';
 import { downloadExampleScenesFolder, getPosition, getQuaternion, toMujocoPos, reloadScene, reloadPolicy } from './mujocoUtils.js';
+import { createDcMotors } from './dcMotor.js';
 
-const defaultPolicy = "./examples/checkpoints/g1/tracking_policy_latest.json";
+const defaultPolicy = "./examples/checkpoints/asimov/asimov_velocity_policy.json";
 
 export class MuJoCoDemo {
   constructor(mujoco) {
@@ -21,6 +22,8 @@ export class MuJoCoDemo {
     this.kpPolicy = null;
     this.kdPolicy = null;
     this.actionTarget = null;
+    this.dcMotors = null;
+    this.velocityCommand = new Float32Array(3); // [vx, vy, wz]
     this.model = null;
     this.data = null;
     this.simulation = null;
@@ -57,6 +60,31 @@ export class MuJoCoDemo {
     this._stepFrameCount = 0;
     this._stepLastTime = performance.now();
     this._lastRenderTime = 0;
+
+    this.metrics = {
+      pelvisZ: 0, gravZ: 0,
+      bodyVx: 0, bodyVy: 0, angVelZ: 0,
+      cmdVx: 0, cmdVy: 0, cmdWz: 0,
+      speed: 0, velError: 0,
+      heading: 0,
+      jointRms: 0,
+      footL: false, footR: false,
+      totalPower: 0, totalTorque: 0,
+      peakTorque: 0, peakJoint: '',
+      cot: 0, mass: 0, fell: false,
+      dragForce: 0, dragForceRaw: 0
+    };
+    this._totalMass = 0;
+    this._footLGeoms = null;
+    this._footRGeoms = null;
+
+    // Sim2real debug state
+    this._prevActions = null;       // for action rate
+    this._reqTorques = null;        // PD-requested torques (before DC motor)
+    this._appliedTorques = null;    // actual applied torques (after DC motor)
+    this._footLHistory = [];        // for stance timing
+    this._footRHistory = [];
+    this._footHistoryLen = 100;     // ~2s at 50Hz
 
     this.container.appendChild(this.renderer.domElement);
 
@@ -101,10 +129,23 @@ export class MuJoCoDemo {
 
   async init() {
     await downloadExampleScenesFolder(this.mujoco);
-    await this.reloadScene('g1/g1.xml');
+    // Load the scene specified by the default policy config
+    const configResp = await fetch(defaultPolicy);
+    const config = await configResp.json();
+    const scene = config.scene ?? 'asimov/asimov_full.xml';
+    await this.reloadScene(scene);
     this.updateFollowBodyId();
     await this.reloadPolicy(defaultPolicy);
     this.alive = true;
+  }
+
+  setVelocityCommand(vx, vy, wz) {
+    this.velocityCommand[0] = vx;
+    this.velocityCommand[1] = vy;
+    this.velocityCommand[2] = wz;
+    if (this.policyRunner) {
+      this.policyRunner.velocityCommand = this.velocityCommand;
+    }
   }
 
   async reload(mjcf_path) {
@@ -187,6 +228,12 @@ export class MuJoCoDemo {
           break;
         }
 
+        // Allocate torque tracking arrays once
+        if (!this._reqTorques || this._reqTorques.length !== this.numActions) {
+          this._reqTorques = new Float32Array(this.numActions);
+          this._appliedTorques = new Float32Array(this.numActions);
+        }
+
         for (let substep = 0; substep < this.decimation; substep++) {
           if (this.control_type === 'joint_position') {
             for (let i = 0; i < this.numActions; i++) {
@@ -197,16 +244,26 @@ export class MuJoCoDemo {
               const targetJpos = this.actionTarget ? this.actionTarget[i] : 0.0;
               const kp = this.kpPolicy ? this.kpPolicy[i] : 0.0;
               const kd = this.kdPolicy ? this.kdPolicy[i] : 0.0;
-              const torque = kp * (targetJpos - this.simulation.qpos[qpos_adr]) + kd * (0 - this.simulation.qvel[qvel_adr]);
-              let ctrlValue = torque;
-              const ctrlRange = this.model?.actuator_ctrlrange;
-              if (ctrlRange && ctrlRange.length >= (ctrl_adr + 1) * 2) {
-                const min = ctrlRange[ctrl_adr * 2];
-                const max = ctrlRange[(ctrl_adr * 2) + 1];
-                if (Number.isFinite(min) && Number.isFinite(max) && min < max) {
-                  ctrlValue = Math.min(Math.max(ctrlValue, min), max);
+              const currentVel = this.simulation.qvel[qvel_adr];
+              const torque = kp * (targetJpos - this.simulation.qpos[qpos_adr]) + kd * (0 - currentVel);
+
+              this._reqTorques[i] = torque;
+
+              let ctrlValue;
+              if (this.dcMotors && this.dcMotors[i]) {
+                ctrlValue = this.dcMotors[i].apply(torque, currentVel);
+              } else {
+                ctrlValue = torque;
+                const ctrlRange = this.model?.actuator_ctrlrange;
+                if (ctrlRange && ctrlRange.length >= (ctrl_adr + 1) * 2) {
+                  const min = ctrlRange[ctrl_adr * 2];
+                  const max = ctrlRange[(ctrl_adr * 2) + 1];
+                  if (Number.isFinite(min) && Number.isFinite(max) && min < max) {
+                    ctrlValue = Math.min(Math.max(ctrlValue, min), max);
+                  }
                 }
               }
+              this._appliedTorques[i] = ctrlValue;
               this.simulation.ctrl[ctrl_adr] = ctrlValue;
             }
           } else if (this.control_type === 'torque') {
@@ -286,6 +343,8 @@ export class MuJoCoDemo {
           matrix: this.lastSimState.tendons.matrix
         };
 
+        this.computeMetrics();
+
         this._stepFrameCount += 1;
         const now = performance.now();
         const elapsedStep = now - this._stepLastTime;
@@ -355,6 +414,264 @@ export class MuJoCoDemo {
       rootAngVel,
       complianceEnabled,
       complianceThreshold
+    };
+  }
+
+  computeMetrics() {
+    if (!this.simulation || !this.model) return;
+    const qpos = this.simulation.qpos;
+    const qvel = this.simulation.qvel;
+    const ctrl = this.simulation.ctrl;
+    const n = this.numActions || 0;
+    const jointNames = this.policyRunner?.config?.policy_joint_names;
+
+    // Pelvis height
+    const pelvisZ = qpos[2];
+
+    // Projected gravity from root quaternion (w,x,y,z at qpos[3..6])
+    const qw = qpos[3], qx = qpos[4], qy = qpos[5], qz = qpos[6];
+    const gravZ = -(1 - 2 * (qx * qx + qy * qy));
+
+    // Body-frame velocity: rotate world lin vel by inverse root quat
+    const vx_w = qvel[0], vy_w = qvel[1], vz_w = qvel[2];
+    const bodyVx = vx_w * (1 - 2*(qy*qy + qz*qz)) + vy_w * 2*(qx*qy + qw*qz) + vz_w * 2*(qx*qz - qw*qy);
+    const bodyVy = vx_w * 2*(qx*qy - qw*qz) + vy_w * (1 - 2*(qx*qx + qz*qz)) + vz_w * 2*(qy*qz + qw*qx);
+    const angVelZ = qvel[5];
+
+    // Commanded velocity
+    const cmdVx = this.velocityCommand[0];
+    const cmdVy = this.velocityCommand[1];
+    const cmdWz = this.velocityCommand[2];
+
+    // Speed & velocity tracking error
+    const speed = Math.sqrt(bodyVx * bodyVx + bodyVy * bodyVy);
+    const velError = Math.sqrt((cmdVx - bodyVx) ** 2 + (cmdVy - bodyVy) ** 2);
+
+    // Heading (yaw from quaternion)
+    const heading = Math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz));
+
+    // Joint tracking RMS (target vs actual)
+    let jointSumSq = 0;
+    if (this.actionTarget && n > 0) {
+      for (let i = 0; i < n; i++) {
+        const err = this.actionTarget[i] - qpos[this.qpos_adr_policy[i]];
+        jointSumSq += err * err;
+      }
+    }
+    const jointRms = n > 0 ? Math.sqrt(jointSumSq / n) : 0;
+
+    // Torque / power from actuator ctrl and joint vel
+    let totalPower = 0;
+    let totalTorque = 0;
+    let peakTorque = 0;
+    let peakIdx = 0;
+    for (let i = 0; i < n; i++) {
+      const ctrlAdr = this.ctrl_adr_policy[i];
+      const qvelAdr = this.qvel_adr_policy[i];
+      const tau = Math.abs(ctrl[ctrlAdr]);
+      const vel = Math.abs(qvel[qvelAdr]);
+      totalTorque += tau;
+      totalPower += tau * vel;
+      if (tau > peakTorque) {
+        peakTorque = tau;
+        peakIdx = i;
+      }
+    }
+
+    // Total mass (cache once)
+    if (this._totalMass === 0 && this.model.nbody > 0) {
+      let m = 0;
+      for (let b = 0; b < this.model.nbody; b++) {
+        m += this.model.body_mass[b];
+      }
+      this._totalMass = m;
+    }
+    const mass = this._totalMass;
+
+    // Cost of transport
+    const cot = speed > 0.05 ? totalPower / (mass * 9.81 * speed) : 0;
+
+    // Foot contact via body z-height (approximate — check ankle_roll_link z)
+    let footL = false;
+    let footR = false;
+    if (this._footLBodyId == null) {
+      // Cache foot body IDs on first call
+      this._footLBodyId = -1;
+      this._footRBodyId = -1;
+      if (this.model.nbody > 0) {
+        for (let b = 0; b < this.model.nbody; b++) {
+          const cached = this.lastSimState.bodies.get(b);
+          if (!cached) continue;
+          const name = this.bodies[b]?.name;
+          if (name === 'left_ankle_roll_link') this._footLBodyId = b;
+          if (name === 'right_ankle_roll_link') this._footRBodyId = b;
+        }
+      }
+    }
+    const footThreshold = 0.045;
+    if (this._footLBodyId >= 0) {
+      const c = this.lastSimState.bodies.get(this._footLBodyId);
+      if (c) footL = c.position.y < footThreshold; // mujoco z → three.js y
+    }
+    if (this._footRBodyId >= 0) {
+      const c = this.lastSimState.bodies.get(this._footRBodyId);
+      if (c) footR = c.position.y < footThreshold;
+    }
+
+    // Fall detection
+    const fell = pelvisZ < 0.3 || gravZ > -0.5;
+
+    // --- Sim2Real Debug Metrics ---
+
+    // Motor saturation: count joints where DC motor clipped significantly
+    let satCount = 0;
+    let satWorstJoint = '';
+    let satWorstRatio = 0;
+    if (this._reqTorques && this._appliedTorques && n > 0) {
+      for (let i = 0; i < n; i++) {
+        const req = Math.abs(this._reqTorques[i]);
+        const app = Math.abs(this._appliedTorques[i]);
+        if (req > 1.0 && app < req * 0.9) {
+          satCount++;
+          const ratio = 1 - app / req;
+          if (ratio > satWorstRatio) {
+            satWorstRatio = ratio;
+            const jn = jointNames?.[i] ?? '';
+            satWorstJoint = jn.replace('_joint', '').replace('left_', 'L_').replace('right_', 'R_');
+          }
+        }
+      }
+    }
+
+    // Action rate (smoothness): L2 norm of action change per step
+    let actionRate = 0;
+    if (this.actionTarget && n > 0) {
+      if (!this._prevActions) {
+        this._prevActions = new Float32Array(n);
+        if (this.actionTarget) this._prevActions.set(this.actionTarget);
+      } else {
+        let sumSq = 0;
+        for (let i = 0; i < n; i++) {
+          const d = this.actionTarget[i] - this._prevActions[i];
+          sumSq += d * d;
+        }
+        actionRate = Math.sqrt(sumSq);
+        this._prevActions.set(this.actionTarget);
+      }
+    }
+
+    // Joint limit proximity: worst joint as % of range used
+    let limitWorstPct = 0;
+    let limitWorstJoint = '';
+    if (n > 0 && this.model.jnt_range) {
+      for (let i = 0; i < n; i++) {
+        const qposAdr = this.qpos_adr_policy[i];
+        const pos = qpos[qposAdr];
+        // Find the joint index for this qpos address to get range
+        const jntIdx = this.policyJointNames ? this._policyJointIndices?.[i] : -1;
+        if (jntIdx >= 0) {
+          const lo = this.model.jnt_range[jntIdx * 2];
+          const hi = this.model.jnt_range[jntIdx * 2 + 1];
+          if (hi > lo) {
+            const range = hi - lo;
+            const distToLimit = Math.min(pos - lo, hi - pos);
+            const pct = 1 - distToLimit / (range / 2);
+            if (pct > limitWorstPct) {
+              limitWorstPct = pct;
+              const jn = jointNames?.[i] ?? '';
+              limitWorstJoint = jn.replace('_joint', '').replace('left_', 'L_').replace('right_', 'R_');
+            }
+          }
+        }
+      }
+    }
+
+    // Cache joint indices for limit check (once)
+    if (!this._policyJointIndices && this.policyJointNames && this.model) {
+      this._policyJointIndices = [];
+      for (const name of this.policyJointNames) {
+        const idx = this.jointNamesMJC?.indexOf(name) ?? -1;
+        this._policyJointIndices.push(idx);
+      }
+    }
+
+    // L-R torque asymmetry (legs only: indices 0-5 left, 6-11 right)
+    let lrAsym = 0;
+    if (this._appliedTorques && n >= 12) {
+      let lSum = 0, rSum = 0;
+      for (let i = 0; i < 6; i++) {
+        lSum += Math.abs(this._appliedTorques[i]);
+        rSum += Math.abs(this._appliedTorques[i + 6]);
+      }
+      const avg = (lSum + rSum) / 2;
+      lrAsym = avg > 1.0 ? Math.abs(lSum - rSum) / avg : 0;
+    }
+
+    // Foot stance timing from contact history
+    this._footLHistory.push(footL ? 1 : 0);
+    this._footRHistory.push(footR ? 1 : 0);
+    if (this._footLHistory.length > this._footHistoryLen) this._footLHistory.shift();
+    if (this._footRHistory.length > this._footHistoryLen) this._footRHistory.shift();
+    const stanceL = this._footLHistory.length > 0
+      ? this._footLHistory.reduce((a, b) => a + b, 0) / this._footLHistory.length : 0;
+    const stanceR = this._footRHistory.length > 0
+      ? this._footRHistory.reduce((a, b) => a + b, 0) / this._footRHistory.length : 0;
+
+    // Drag force magnitude
+    let dragForceRaw = 0;
+    const dragged = this.dragStateManager?.physicsObject;
+    if (dragged && dragged.bodyID) {
+      const dm = this.dragStateManager;
+      if (dm.currentWorld && dm.worldHit) {
+        const dx = dm.currentWorld.x - dm.worldHit.x;
+        const dy = dm.currentWorld.y - dm.worldHit.y;
+        const dz = dm.currentWorld.z - dm.worldHit.z;
+        dragForceRaw = Math.min(Math.sqrt(dx*dx + dy*dy + dz*dz) * 60.0, 30.0);
+      }
+    }
+
+    // Joint name for peak torque
+    let peakJoint = '';
+    if (jointNames && jointNames[peakIdx]) {
+      peakJoint = jointNames[peakIdx]
+        .replace('_joint', '')
+        .replace('left_', 'L_')
+        .replace('right_', 'R_');
+    }
+
+    this.metrics = {
+      pelvisZ: pelvisZ.toFixed(3),
+      gravZ: gravZ.toFixed(3),
+      bodyVx: bodyVx.toFixed(2),
+      bodyVy: bodyVy.toFixed(2),
+      angVelZ: angVelZ.toFixed(2),
+      cmdVx: cmdVx.toFixed(2),
+      cmdVy: cmdVy.toFixed(2),
+      cmdWz: cmdWz.toFixed(2),
+      speed: speed.toFixed(2),
+      velError: velError.toFixed(3),
+      heading: (heading * 180 / Math.PI).toFixed(1),
+      jointRms: (jointRms * 180 / Math.PI).toFixed(2),
+      footL,
+      footR,
+      stanceL: (stanceL * 100).toFixed(0),
+      stanceR: (stanceR * 100).toFixed(0),
+      totalPower: totalPower.toFixed(1),
+      totalTorque: totalTorque.toFixed(1),
+      peakTorque: peakTorque.toFixed(1),
+      peakJoint,
+      cot: cot.toFixed(2),
+      mass: mass.toFixed(1),
+      satCount,
+      satPct: n > 0 ? ((satCount / n) * 100).toFixed(0) : '0',
+      satWorstJoint,
+      actionRate: actionRate.toFixed(4),
+      limitPct: (limitWorstPct * 100).toFixed(0),
+      limitJoint: limitWorstJoint,
+      lrAsym: (lrAsym * 100).toFixed(0),
+      fell,
+      dragForce: dragForceRaw.toFixed(1),
+      dragForceRaw
     };
   }
 

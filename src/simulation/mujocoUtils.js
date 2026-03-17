@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Reflector } from './utils/Reflector.js';
 import { PolicyRunner } from './policyRunner.js';
 import { toFloatArray } from './utils/math.js';
+import { createDcMotors } from './dcMotor.js';
 
 const MOTION_INDEX_FORMAT = 'tracking-motion-index-v1';
 
@@ -170,6 +171,7 @@ export async function reloadPolicy(policy_path, options = {}) {
   this.kpPolicy = toFloatArray(config.stiffness, this.numActions, 0.0);
   this.kdPolicy = toFloatArray(config.damping, this.numActions, 0.0);
   this.control_type = config.control_type ?? 'joint_position';
+  this.dcMotors = createDcMotors(config.dc_motor);
 
   if (trackingConfig) {
     trackingConfig.policy_joint_names = policyJointNames.slice();
@@ -256,7 +258,7 @@ export async function loadSceneFromURL(mujoco, filename, parent) {
       bodies[b].bodyID = b;
       bodies[b].has_custom_mesh = false;
 
-      if (bodies[b].name === 'base') {
+      if (bodies[b].name === 'base' || bodies[b].name === 'pelvis_link') {
         parent.pelvis_body_id = b;
       }
     }

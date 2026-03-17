@@ -26,221 +26,76 @@
   </div>
   <div v-if="!isSmallScreen" class="controls">
     <v-card class="controls-card">
-      <v-card-title>General Tracking Demo</v-card-title>
+      <v-card-title>Asimov Policy Viewer</v-card-title>
       <v-card-text class="py-0 controls-body">
-          <v-btn
-            href="https://github.com/Axellwppr/humanoid-policy-viewer"
-            target="_blank"
-            variant="text"
-            size="small"
-            color="primary"
-            class="text-capitalize"
-          >
-            <v-icon icon="mdi-github" class="mr-1"></v-icon>
-            Demo Code
-          </v-btn>
-          <v-btn
-            href="https://github.com/Axellwppr/motion_tracking"
-            target="_blank"
-            variant="text"
-            size="small"
-            color="primary"
-            class="text-capitalize"
-          >
-            <v-icon icon="mdi-github" class="mr-1"></v-icon>
-            Training Code
-          </v-btn>
-        <v-divider class="my-2"/>
-        <span class="status-name">Policy</span>
-        <div v-if="policyDescription" class="text-caption">{{ policyDescription }}</div>
-        <v-select
-          v-model="currentPolicy"
-          :items="policyItems"
-          class="mt-2"
-          label="Select policy"
-          density="compact"
-          hide-details
-          item-title="title"
-          item-value="value"
-          :disabled="isPolicyLoading || state !== 1"
-          @update:modelValue="onPolicyChange"
-        ></v-select>
-        <v-progress-linear
-          v-if="isPolicyLoading"
-          indeterminate
-          height="4"
-          color="primary"
-          class="mt-2"
-        ></v-progress-linear>
-        <v-alert
-          v-if="policyLoadError"
-          type="error"
-          variant="tonal"
-          density="compact"
-          class="mt-2"
-        >
-          {{ policyLoadError }}
-        </v-alert>
-
-        <div class="status-legend follow-controls mt-2">
-          <span class="status-name">Compliance</span>
-          <v-btn
-            size="x-small"
-            variant="tonal"
-            color="primary"
-            :disabled="state !== 1"
-            @click="toggleCompliance"
-          >
-            {{ complianceEnabled ? 'On' : 'Off' }}
-          </v-btn>
-          <span class="status-name">threshold</span>
-          <span class="text-caption">{{ complianceThresholdLabel }}</span>
+        <div class="metrics-grid">
+          <span class="metric-label">Sim Hz</span>
+          <span class="metric-value">{{ simStepLabel }}</span>
+          <span class="metric-label">Height</span>
+          <span class="metric-value">{{ metrics.pelvisZ }} m</span>
+          <span class="metric-label">Grav Z</span>
+          <span class="metric-value">{{ metrics.gravZ }}</span>
+          <span class="metric-label">Heading</span>
+          <span class="metric-value">{{ metrics.heading }}°</span>
+          <span class="metric-label">Cmd Vel</span>
+          <span class="metric-value">{{ metrics.cmdVx }} / {{ metrics.cmdVy }} / {{ metrics.cmdWz }}</span>
+          <span class="metric-label">Body Vel</span>
+          <span class="metric-value">{{ metrics.bodyVx }} / {{ metrics.bodyVy }} / {{ metrics.angVelZ }}</span>
+          <span class="metric-label">Speed</span>
+          <span class="metric-value">{{ metrics.speed }} m/s</span>
+          <span class="metric-label">Vel Error</span>
+          <span class="metric-value" :style="{ color: parseFloat(metrics.velError) > 0.2 ? '#ff9800' : '#4caf50' }">{{ metrics.velError }} m/s</span>
+          <span class="metric-label">Joint RMS</span>
+          <span class="metric-value">{{ metrics.jointRms }}°</span>
+          <span class="metric-label">Feet</span>
+          <span class="metric-value">
+            <span :style="{ color: metrics.footL ? '#4caf50' : '#666' }">L</span>
+            {{ ' ' }}
+            <span :style="{ color: metrics.footR ? '#4caf50' : '#666' }">R</span>
+            <span class="metric-dim"> ({{ metrics.stanceL }}/{{ metrics.stanceR }}%)</span>
+          </span>
+          <span class="metric-label">Power</span>
+          <span class="metric-value">{{ metrics.totalPower }} W</span>
+          <span class="metric-label">Torque</span>
+          <span class="metric-value">{{ metrics.totalTorque }} Nm</span>
+          <span class="metric-label">Peak</span>
+          <span class="metric-value">{{ metrics.peakTorque }} ({{ metrics.peakJoint }})</span>
+          <span class="metric-label">CoT</span>
+          <span class="metric-value">{{ metrics.cot }}</span>
+          <span class="metric-label">Mass</span>
+          <span class="metric-value">{{ metrics.mass }} kg</span>
+          <span class="metric-label">Motor Sat</span>
+          <span class="metric-value" :style="{ color: parseInt(metrics.satPct) > 0 ? '#ff9800' : undefined }">
+            {{ metrics.satPct }}%<span v-if="metrics.satWorstJoint" class="metric-dim"> ({{ metrics.satWorstJoint }})</span>
+          </span>
+          <span class="metric-label">Action Δ</span>
+          <span class="metric-value" :style="{ color: parseFloat(metrics.actionRate) > 0.5 ? '#ff9800' : undefined }">{{ metrics.actionRate }}</span>
+          <span class="metric-label">Jnt Limit</span>
+          <span class="metric-value" :style="{ color: parseInt(metrics.limitPct) > 90 ? '#ff5252' : parseInt(metrics.limitPct) > 70 ? '#ff9800' : undefined }">
+            {{ metrics.limitPct }}%<span v-if="metrics.limitJoint" class="metric-dim"> ({{ metrics.limitJoint }})</span>
+          </span>
+          <span class="metric-label">L-R Asym</span>
+          <span class="metric-value" :style="{ color: parseInt(metrics.lrAsym) > 30 ? '#ff9800' : undefined }">{{ metrics.lrAsym }}%</span>
+          <span class="metric-label">Ext Force</span>
+          <span class="metric-value" :style="{ color: metrics.dragForceRaw > 0 ? '#ff5252' : undefined }">{{ metrics.dragForce }} N</span>
         </div>
-        <v-slider
-          v-model="complianceThreshold"
-          min="10"
-          max="20"
-          step="0.1"
-          density="compact"
-          hide-details
-          :disabled="state !== 1 || !complianceEnabled"
-          @update:modelValue="onComplianceThresholdChange"
-        ></v-slider>
-
+        <v-chip v-if="metrics.fell" color="error" size="small" class="mt-1">FELL</v-chip>
         <v-divider class="my-2"/>
-        <div class="motion-status" v-if="trackingState">
-          <div class="status-legend" v-if="trackingState.available">
-            <span class="status-name">Current motion: {{ trackingState.currentName }}</span>
-          </div>
-        </div>
-
-          <v-progress-linear
-            v-if="shouldShowProgress"
-            :model-value="progressValue"
-            height="5"
-            color="primary"
-            rounded
-            class="mt-3 motion-progress-no-animation"
-          ></v-progress-linear>
-        <v-alert
-          v-if="showBackToDefault"
-          type="info"
-          variant="tonal"
-          density="compact"
-          class="mt-3"
-        >
-          Motion "{{ trackingState.currentName }}" finished. Return to the default pose before starting another clip.
-          <v-btn color="primary" block density="compact" @click="backToDefault">
-            Back to default pose
-          </v-btn>
-        </v-alert>
-
-        <v-alert
-          v-else-if="showMotionLockedNotice"
-          type="warning"
-          variant="tonal"
-          density="compact"
-          class="mt-3"
-        >
-          "{{ trackingState.currentName }}" is still playing. Wait until it finishes and returns to default pose before switching.
-        </v-alert>
-
-        <div v-if="showMotionSelect" class="motion-groups">
-          <div v-for="group in motionGroups" :key="group.title" class="motion-group">
-            <span class="status-name motion-group-title">{{ group.title }}</span>
-            <v-chip
-              v-for="item in group.items"
-              :key="item.value"
-              :disabled="item.disabled"
-              :color="currentMotion === item.value ? 'primary' : undefined"
-              :variant="currentMotion === item.value ? 'flat' : 'tonal'"
-              class="motion-chip"
-              size="x-small"
-              @click="onMotionChange(item.value)"
-            >
-              {{ item.title }}
-            </v-chip>
-          </div>
-        </div>
-
-        <v-alert
-          v-else-if="!trackingState.available"
-          type="info"
-          variant="tonal"
-          density="compact"
-        >
-          Loading motion presets…
-        </v-alert>
-
-        <v-divider class="my-2"/>
-        <div class="upload-section">
-          <v-btn
-            v-if="!showUploadOptions"
-            variant="text"
-            density="compact"
-            color="primary"
-            class="upload-toggle"
-            @click="showUploadOptions = true"
-          >
-            Want to use customized motions?
-          </v-btn>
-          <template v-else>
-            <span class="status-name">Custom motions</span>
-            <v-file-input
-              v-model="motionUploadFiles"
-              label="Upload motion JSON"
-              density="compact"
-              hide-details
-              accept=".json,application/json"
-              prepend-icon="mdi-upload"
-              multiple
-              show-size
+        <span class="status-name">Movement</span>
+          <div class="movement-buttons">
+            <v-btn
+              v-for="mode in movementModes"
+              :key="mode.name"
+              size="small"
+              :variant="activeMovement === mode.name ? 'flat' : 'tonal'"
+              :color="activeMovement === mode.name ? 'primary' : undefined"
               :disabled="state !== 1"
-              @update:modelValue="onMotionUpload"
-            ></v-file-input>
-            <div class="text-caption">
-              Read <a target="_blank" href="https://github.com/Axellwppr/humanoid-policy-viewer?tab=readme-ov-file#add-your-own-robot-policy-and-motions">readme</a> to learn how to create motion JSON files from GMR.<br/>
-              Each file should be a single clip (same schema as motions/default.json). File name becomes the motion name (prefixed with [new]). Duplicate names are ignored.
-            </div>
-            <v-alert
-              v-if="motionUploadMessage"
-              :type="motionUploadType"
-              variant="tonal"
-              density="compact"
+              @click="setMovement(mode)"
             >
-              {{ motionUploadMessage }}
-            </v-alert>
-          </template>
-        </div>
+              {{ mode.label }}
+            </v-btn>
+          </div>
 
-        <v-divider class="my-2"/>
-        <div class="status-legend follow-controls">
-          <span class="status-name">Camera follow</span>
-          <v-btn
-            size="x-small"
-            variant="tonal"
-            color="primary"
-            :disabled="state !== 1"
-            @click="toggleCameraFollow"
-          >
-            {{ cameraFollowEnabled ? 'On' : 'Off' }}
-          </v-btn>
-        </div>
-        <div class="status-legend">
-          <span class="status-name">Render scale</span>
-          <span class="text-caption">{{ renderScaleLabel }}</span>
-          <span class="status-name">Sim Freq</span>
-          <span class="text-caption">{{ simStepLabel }}</span>
-        </div>
-        <v-slider
-          v-model="renderScale"
-          min="0.5"
-          max="2.0"
-          step="0.1"
-          density="compact"
-          hide-details
-          @update:modelValue="onRenderScaleChange"
-        ></v-slider>
       </v-card-text>
       <v-card-actions>
         <v-btn color="primary" block @click="reset">Reset</v-btn>
@@ -280,157 +135,45 @@ export default {
     state: 0, // 0: loading, 1: running, -1: JS error, -2: wasm unsupported
     extra_error_message: '',
     keydown_listener: null,
-    currentMotion: null,
-    availableMotions: [],
-    trackingState: {
-      available: false,
-      currentName: 'default',
-      currentDone: true,
-      refIdx: 0,
-      refLen: 0,
-      transitionLen: 0,
-      motionLen: 0,
-      inTransition: false,
-      isDefault: true
-    },
-    trackingTimer: null,
-    policies: [
-      {
-        value: 'g1-tracking-latest',
-        title: 'G1 Tracking',
-        description: 'Tracking policy with compliance input enabled.',
-        policyPath: './examples/checkpoints/g1/tracking_policy_latest.json',
-        onnxPath: './examples/checkpoints/g1/policy_latest.onnx'
-      }
+    cmdVx: 0.0,
+    cmdVy: 0.0,
+    cmdWz: 0.0,
+    activeMovement: 'stand',
+    movementModes: [
+      { name: 'stand', label: 'Stand', vx: 0.0, vy: 0.0 },
+      { name: 'forward', label: 'Forward', vx: 0.5, vy: 0.0 },
+      { name: 'backward', label: 'Backward', vx: -0.5, vy: 0.0 },
+      { name: 'left', label: 'Left', vx: 0.0, vy: 0.5 },
+      { name: 'right', label: 'Right', vx: 0.0, vy: -0.5 },
     ],
-    currentPolicy: 'g1-tracking-latest',
-    policyLabel: '',
-    isPolicyLoading: false,
-    policyLoadError: '',
-    motionUploadFiles: [],
-    motionUploadMessage: '',
-    motionUploadType: 'success',
-    showUploadOptions: false,
-    cameraFollowEnabled: true,
-    complianceEnabled: false,
-    complianceThreshold: 10.0,
-    renderScale: 2.0,
     simStepHz: 0,
     isSmallScreen: false,
     showSmallScreenAlert: true,
     isSafari: false,
     showSafariAlert: true,
-    resize_listener: null
+    resize_listener: null,
+    metricsTimer: null,
+    metrics: {
+      pelvisZ: '0.000', gravZ: '0.000',
+      bodyVx: '0.00', bodyVy: '0.00', angVelZ: '0.00',
+      cmdVx: '0.00', cmdVy: '0.00', cmdWz: '0.00',
+      speed: '0.00', velError: '0.000',
+      heading: '0.0',
+      jointRms: '0.00',
+      footL: false, footR: false,
+      stanceL: '0', stanceR: '0',
+      totalPower: '0.0', totalTorque: '0.0',
+      peakTorque: '0.0', peakJoint: '',
+      cot: '0.00', mass: '0.0',
+      satCount: 0, satPct: '0', satWorstJoint: '',
+      actionRate: '0.0000',
+      limitPct: '0', limitJoint: '',
+      lrAsym: '0',
+      fell: false,
+      dragForce: '0.0', dragForceRaw: 0
+    }
   }),
   computed: {
-    shouldShowProgress() {
-      const state = this.trackingState;
-      if (!state || !state.available) {
-        return false;
-      }
-      if (state.refLen > 1) {
-        return true;
-      }
-      return !state.currentDone || !state.isDefault || state.inTransition;
-    },
-    progressValue() {
-      const state = this.trackingState;
-      if (!state || state.refLen <= 0) {
-        return 0;
-      }
-      const value = ((state.refIdx + 1) / state.refLen) * 100;
-      return Math.max(0, Math.min(100, value));
-    },
-    showBackToDefault() {
-      const state = this.trackingState;
-      return state && state.available && !state.isDefault && state.currentDone;
-    },
-    showMotionLockedNotice() {
-      const state = this.trackingState;
-      return state && state.available && !state.isDefault && !state.currentDone;
-    },
-    showMotionSelect() {
-      const state = this.trackingState;
-      if (!state || !state.available) {
-        return false;
-      }
-      if (!state.isDefault || !state.currentDone) {
-        return false;
-      }
-      return this.motionItems.some((item) => !item.disabled);
-    },
-    motionItems() {
-      const names = [...this.availableMotions].sort((a, b) => {
-        if (a === 'default') {
-          return -1;
-        }
-        if (b === 'default') {
-          return 1;
-        }
-        return a.localeCompare(b);
-      });
-      return names.map((name) => ({
-        title: name.split('_')[0],
-        value: name,
-        disabled: this.isMotionDisabled(name)
-      }));
-    },
-    motionGroups() {
-      const items = this.motionItems.filter((item) => item.value !== 'default');
-      if (items.length === 0) {
-        return [];
-      }
-      const customized = [];
-      const amass = [];
-      const gentleHumanoid = [];
-      const lafan = [];
-
-      for (const item of items) {
-        const value = item.value.toLowerCase();
-        if (/(^|[_\s-])gentle$/.test(value)) {
-          gentleHumanoid.push(item);
-        } else if (value.includes('[new]')) {
-          customized.push(item);
-        } else if (value.includes('amass')) {
-          amass.push(item);
-        } else {
-          lafan.push(item);
-        }
-      }
-
-      const groups = [];
-      if (lafan.length > 0) {
-        groups.push({ title: 'LAFAN1', items: lafan });
-      }
-      if (amass.length > 0) {
-        groups.push({ title: 'AMASS', items: amass });
-      }
-      if (gentleHumanoid.length > 0) {
-        groups.push({ title: 'GentleHumanoid', items: gentleHumanoid });
-      }
-      if (customized.length > 0) {
-        groups.push({ title: 'Customized', items: customized });
-      }
-      return groups;
-    },
-    policyItems() {
-      return this.policies.map((policy) => ({
-        title: policy.title,
-        value: policy.value
-      }));
-    },
-    selectedPolicy() {
-      return this.policies.find((policy) => policy.value === this.currentPolicy) ?? null;
-    },
-    policyDescription() {
-      return this.selectedPolicy?.description ?? '';
-    },
-    renderScaleLabel() {
-      return `${this.renderScale.toFixed(2)}x`;
-    },
-    complianceThresholdLabel() {
-      return this.complianceThreshold.toFixed(1);
-    },
     simStepLabel() {
       if (!this.simStepHz || !Number.isFinite(this.simStepHz)) {
         return '—';
@@ -466,27 +209,10 @@ export default {
       try {
         const mujoco = await loadMujoco();
         this.demo = new MuJoCoDemo(mujoco);
-        this.demo.setFollowEnabled?.(this.cameraFollowEnabled);
         await this.demo.init();
         this.demo.main_loop();
         this.demo.params.paused = false;
-        this.reapplyCustomMotions();
-        this.availableMotions = this.getAvailableMotions();
-        this.currentMotion = this.demo.params.current_motion ?? this.availableMotions[0] ?? null;
-        this.complianceEnabled = Boolean(this.demo.params?.compliance_enabled);
-        const threshold = Number(this.demo.params?.compliance_threshold);
-        if (Number.isFinite(threshold)) {
-          this.complianceThreshold = threshold;
-        }
-        this.startTrackingPoll();
-        this.renderScale = this.demo.renderScale ?? this.renderScale;
-        const matchingPolicy = this.policies.find(
-          (policy) => policy.policyPath === this.demo.currentPolicyPath
-        );
-        if (matchingPolicy) {
-          this.currentPolicy = matchingPolicy.value;
-        }
-        this.policyLabel = this.demo.currentPolicyPath?.split('/').pop() ?? this.policyLabel;
+        this.startMetricsPoll();
         this.state = 1;
       } catch (error) {
         this.state = -1;
@@ -494,310 +220,55 @@ export default {
         console.error(error);
       }
     },
-    reapplyCustomMotions() {
-      if (!this.demo || !this.customMotions) {
-        return;
-      }
-      const names = Object.keys(this.customMotions);
-      if (names.length === 0) {
-        return;
-      }
-      this.addMotions(this.customMotions);
-    },
-    async onMotionUpload(files) {
-      const fileList = Array.isArray(files)
-        ? files
-        : files instanceof FileList
-          ? Array.from(files)
-          : files
-            ? [files]
-            : [];
-      if (fileList.length === 0) {
-        return;
-      }
-      if (!this.demo) {
-        this.motionUploadMessage = 'Demo not ready yet. Please wait for loading to finish.';
-        this.motionUploadType = 'warning';
-        this.motionUploadFiles = [];
-        return;
-      }
-
-      let added = 0;
-      let skipped = 0;
-      let invalid = 0;
-      let failed = 0;
-      const prefix = '[new] ';
-
-      for (const file of fileList) {
-        try {
-          const text = await file.text();
-          const parsed = JSON.parse(text);
-          const clip = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-            ? parsed
-            : null;
-          if (!clip) {
-            invalid += 1;
-            continue;
-          }
-
-          const baseName = file.name.replace(/\.[^/.]+$/, '').trim();
-          const normalizedName = baseName ? baseName : 'motion';
-          const motionName = normalizedName.startsWith(prefix)
-            ? normalizedName
-            : `${prefix}${normalizedName}`;
-          const result = this.addMotions({ [motionName]: clip });
-          added += result.added.length;
-          skipped += result.skipped.length;
-          invalid += result.invalid.length;
-
-          if (result.added.length > 0) {
-            if (!this.customMotions) {
-              this.customMotions = {};
-            }
-            for (const name of result.added) {
-              this.customMotions[name] = clip;
-            }
-          }
-        } catch (error) {
-          console.error('Failed to read motion JSON:', error);
-          failed += 1;
-        }
-      }
-
-      if (added > 0) {
-        this.availableMotions = this.getAvailableMotions();
-      }
-
-      const parts = [];
-      if (added > 0) {
-        parts.push(`Added ${added} motion${added === 1 ? '' : 's'}`);
-      }
-      if (skipped > 0) {
-        parts.push(`Skipped ${skipped} duplicate${skipped === 1 ? '' : 's'}`);
-      }
-      const badCount = invalid + failed;
-      if (badCount > 0) {
-        parts.push(`Ignored ${badCount} invalid file${badCount === 1 ? '' : 's'}`);
-      }
-      if (parts.length === 0) {
-        this.motionUploadMessage = 'No motions were added.';
-        this.motionUploadType = 'info';
-      } else {
-        this.motionUploadMessage = `${parts.join('. ')}.`;
-        this.motionUploadType = badCount > 0 ? 'warning' : 'success';
-      }
-      this.motionUploadFiles = [];
-    },
-    toggleCameraFollow() {
-      this.cameraFollowEnabled = !this.cameraFollowEnabled;
-      if (this.demo?.setFollowEnabled) {
-        this.demo.setFollowEnabled(this.cameraFollowEnabled);
-      }
-    },
-    toggleCompliance() {
-      const nextEnabled = !this.complianceEnabled;
-      if (nextEnabled) {
-        const current = this.currentMotion ?? this.demo?.params?.current_motion;
-        if (current && !this.isMotionComplianceSuitable(current)) {
-          return;
-        }
-      }
-      this.complianceEnabled = nextEnabled;
-      this.applyComplianceSettings();
-    },
-    onComplianceThresholdChange(value) {
-      const numeric = Number(value);
-      if (!Number.isFinite(numeric)) {
-        return;
-      }
-      this.complianceThreshold = numeric;
-      this.applyComplianceSettings();
-    },
-    applyComplianceSettings() {
-      if (!this.demo?.params) {
-        return;
-      }
-      this.demo.params.compliance_enabled = Boolean(this.complianceEnabled);
-      this.demo.params.compliance_threshold = Number(this.complianceThreshold);
-    },
-    isMotionComplianceSuitable(name) {
-      const tracking = this.demo?.policyRunner?.tracking ?? null;
-      if (!tracking || typeof tracking.isComplianceSuitable !== 'function') {
-        return true;
-      }
-      return tracking.isComplianceSuitable(name);
-    },
-    isMotionDisabled(name) {
-      if (name === 'default') {
-        return true;
-      }
-      if (!this.complianceEnabled) {
-        return false;
-      }
-      return !this.isMotionComplianceSuitable(name);
-    },
-    onMotionChange(value) {
+    onVelocityChange() {
       if (!this.demo) {
         return;
       }
-      if (!value || value === this.demo.params.current_motion) {
-        this.currentMotion = this.demo.params.current_motion ?? value;
-        return;
-      }
-      const accepted = this.requestMotion(value);
-      if (!accepted) {
-        this.currentMotion = this.demo.params.current_motion;
-      } else {
-        this.currentMotion = value;
-        this.updateTrackingState();
-      }
+      this.demo.setVelocityCommand(this.cmdVx, this.cmdVy, this.cmdWz);
     },
-    async onPolicyChange(value) {
-      if (!this.demo || !value) {
-        return;
-      }
-      const selected = this.policies.find((policy) => policy.value === value);
-      if (!selected) {
-        return;
-      }
-      const needsReload = selected.policyPath !== this.demo.currentPolicyPath || selected.onnxPath;
-      if (!needsReload) {
-        return;
-      }
-      const wasPaused = this.demo.params?.paused ?? false;
-      this.demo.params.paused = true;
-      this.isPolicyLoading = true;
-      this.policyLoadError = '';
-      try {
-        await this.demo.reloadPolicy(selected.policyPath, {
-          onnxPath: selected.onnxPath || undefined
-        });
-        this.policyLabel = selected.policyPath?.split('/').pop() ?? this.policyLabel;
-        this.reapplyCustomMotions();
-        this.availableMotions = this.getAvailableMotions();
-        this.currentMotion = this.demo.params.current_motion ?? this.availableMotions[0] ?? null;
-        this.updateTrackingState();
-      } catch (error) {
-        console.error('Failed to reload policy:', error);
-        this.policyLoadError = error.toString();
-      } finally {
-        this.isPolicyLoading = false;
-        this.demo.params.paused = wasPaused;
-      }
+    setMovement(mode) {
+      this.activeMovement = mode.name;
+      this.cmdVx = mode.vx;
+      this.cmdVy = mode.vy;
+      this.cmdWz = 0.0;
+      this.onVelocityChange();
     },
     reset() {
       if (!this.demo) {
         return;
       }
       this.demo.resetSimulation();
-      this.availableMotions = this.getAvailableMotions();
-      this.currentMotion = this.demo.params.current_motion ?? this.availableMotions[0] ?? null;
-      this.updateTrackingState();
     },
-    backToDefault() {
-      if (!this.demo) {
-        return;
-      }
-      const accepted = this.requestMotion('default');
-      if (accepted) {
-        this.currentMotion = 'default';
-        this.updateTrackingState();
-      }
-    },
-    startTrackingPoll() {
-      this.stopTrackingPoll();
-      this.updateTrackingState();
-      this.updatePerformanceStats();
-      this.trackingTimer = setInterval(() => {
-        this.updateTrackingState();
-        this.updatePerformanceStats();
+    startMetricsPoll() {
+      this.stopMetricsPoll();
+      this.metricsTimer = setInterval(() => {
+        if (!this.demo) return;
+        this.simStepHz = this.demo.getSimStepHz?.() ?? this.demo.simStepHz ?? 0;
+        if (this.demo.metrics) {
+          this.metrics = { ...this.demo.metrics };
+        }
       }, 33);
     },
-    stopTrackingPoll() {
-      if (this.trackingTimer) {
-        clearInterval(this.trackingTimer);
-        this.trackingTimer = null;
+    stopMetricsPoll() {
+      if (this.metricsTimer) {
+        clearInterval(this.metricsTimer);
+        this.metricsTimer = null;
       }
-    },
-    updateTrackingState() {
-      const tracking = this.demo?.policyRunner?.tracking ?? null;
-      if (!tracking) {
-        this.trackingState = {
-          available: false,
-          currentName: 'default',
-          currentDone: true,
-          refIdx: 0,
-          refLen: 0,
-          transitionLen: 0,
-          motionLen: 0,
-          inTransition: false,
-          isDefault: true
-        };
-        return;
-      }
-      const state = tracking.playbackState();
-      this.trackingState = { ...state };
-      this.availableMotions = tracking.availableMotions();
-      const current = this.demo.params.current_motion ?? state.currentName ?? null;
-      if (current && this.currentMotion !== current) {
-        this.currentMotion = current;
-      }
-    },
-    updatePerformanceStats() {
-      if (!this.demo) {
-        this.simStepHz = 0;
-        return;
-      }
-      this.simStepHz = this.demo.getSimStepHz?.() ?? this.demo.simStepHz ?? 0;
-    },
-    onRenderScaleChange(value) {
-      if (!this.demo) {
-        return;
-      }
-      this.demo.setRenderScale(value);
-    },
-    getAvailableMotions() {
-      const tracking = this.demo?.policyRunner?.tracking ?? null;
-      return tracking ? tracking.availableMotions() : [];
-    },
-    addMotions(motions, options = {}) {
-      const tracking = this.demo?.policyRunner?.tracking ?? null;
-      if (!tracking) {
-        return { added: [], skipped: [], invalid: [] };
-      }
-      return tracking.addMotions(motions, options);
-    },
-    requestMotion(name) {
-      const tracking = this.demo?.policyRunner?.tracking ?? null;
-      if (!tracking || !this.demo) {
-        return false;
-      }
-      const state = this.demo.readPolicyState();
-      const accepted = tracking.requestMotion(name, state);
-      if (accepted) {
-        this.demo.params.current_motion = name;
-      }
-      return accepted;
     }
   },
   mounted() {
-    this.customMotions = {};
     this.isSafari = this.detectSafari();
     this.updateScreenState();
-    this.resize_listener = () => {
-      this.updateScreenState();
-    };
+    this.resize_listener = () => this.updateScreenState();
     window.addEventListener('resize', this.resize_listener);
     this.init();
     this.keydown_listener = (event) => {
-      if (event.code === 'Backspace') {
-        this.reset();
-      }
+      if (event.code === 'Backspace') this.reset();
     };
     document.addEventListener('keydown', this.keydown_listener);
   },
   beforeUnmount() {
-    this.stopTrackingPoll();
+    this.stopMetricsPoll();
     document.removeEventListener('keydown', this.keydown_listener);
     if (this.resize_listener) {
       window.removeEventListener('resize', this.resize_listener);
@@ -846,75 +317,38 @@ export default {
   overscroll-behavior: contain;
 }
 
-.motion-status {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.motion-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.motion-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.motion-chip {
-  text-transform: none;
-  font-size: 0.7rem;
-}
-
-.status-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
 .status-name {
   font-weight: 600;
 }
 
-.policy-file {
-  display: block;
+.movement-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 4px;
 }
 
-
-.upload-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.metrics-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  font-size: 0.8rem;
+  font-family: 'Roboto Mono', monospace;
+  line-height: 1.5;
 }
 
-.upload-toggle {
-  padding: 0;
-  min-height: unset;
-  font-size: 0.85rem;
-  text-transform: none;
+.metric-label {
+  color: rgba(0, 0, 0, 0.5);
+  font-weight: 500;
 }
 
-.motion-progress-no-animation,
-.motion-progress-no-animation *,
-.motion-progress-no-animation::before,
-.motion-progress-no-animation::after {
-  transition: none !important;
-  animation: none !important;
+.metric-value {
+  text-align: right;
+  color: rgba(0, 0, 0, 0.87);
 }
 
-.motion-progress-no-animation :deep(.v-progress-linear__determinate),
-.motion-progress-no-animation :deep(.v-progress-linear__indeterminate),
-.motion-progress-no-animation :deep(.v-progress-linear__background) {
-  transition: none !important;
-  animation: none !important;
+.metric-dim {
+  color: rgba(0, 0, 0, 0.4);
+  font-size: 0.75rem;
 }
 </style>

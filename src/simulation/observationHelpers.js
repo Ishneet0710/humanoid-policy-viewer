@@ -290,6 +290,99 @@ class PrevActions {
 }
 
 
+/**
+ * Asimov velocity-command observation (78 dims).
+ *
+ * Layout matches deploy_asimov.py exactly:
+ *   [base_ang_vel(3), projected_gravity(3), command(3),
+ *    joint_pos_slot01(9), joint_pos_slot23(8), joint_pos_slot45(6),
+ *    joint_vel_slot01(9), joint_vel_slot23(8), joint_vel_slot45(6),
+ *    prev_actions(23)]
+ */
+class AsimovVelocityObs {
+  constructor(policy) {
+    this.policy = policy;
+    this.numActions = policy.numActions; // 23
+    this.gravity = new THREE.Vector3(0, 0, -1);
+
+    // CAN slot reorder indices (into XML-order joint arrays)
+    this.obsJointReorder = [
+      0, 1, 6, 7, 12, 13, 14, 18, 19,  // slot 0-1 (9)
+      2, 3, 8, 9, 15, 16, 20, 21,       // slot 2-3 (8)
+      4, 5, 10, 11, 17, 22              // slot 4-5 (6)
+    ];
+    this.slotSizes = [9, 8, 6];
+
+    this.angVelScale = 0.25;
+    this.jointVelScale = 0.1;
+
+    // Velocity command (set externally via policy.velocityCommand)
+    this.command = new Float32Array(3); // [vx, vy, wz]
+  }
+
+  get size() {
+    return 78; // 3+3+3 + 9+8+6 + 9+8+6 + 23
+  }
+
+  reset() {
+    this.command.fill(0.0);
+  }
+
+  compute(state) {
+    const out = new Float32Array(78);
+    let offset = 0;
+
+    // 1. Base angular velocity * scale (3)
+    const angVel = state.rootAngVel;
+    out[offset++] = angVel[0] * this.angVelScale;
+    out[offset++] = angVel[1] * this.angVelScale;
+    out[offset++] = angVel[2] * this.angVelScale;
+
+    // 2. Projected gravity (3)
+    const quat = state.rootQuat; // [w, x, y, z]
+    const w = quat[0], x = quat[1], y = quat[2], z = quat[3];
+    out[offset++] = 2.0 * (w * y - x * z);
+    out[offset++] = -2.0 * (w * x + y * z);
+    out[offset++] = -1.0 + 2.0 * (x * x + y * y);
+
+    // 3. Velocity command (3)
+    const cmd = this.policy.velocityCommand ?? this.command;
+    out[offset++] = cmd[0];
+    out[offset++] = cmd[1];
+    out[offset++] = cmd[2];
+
+    // 4. Joint positions relative to default, CAN-slot reordered
+    const defaultPos = this.policy.defaultJointPos;
+    const jointPos = state.jointPos;
+    const jointVel = state.jointVel;
+
+    // Compute relative positions
+    const relPos = new Float32Array(this.numActions);
+    for (let i = 0; i < this.numActions; i++) {
+      relPos[i] = jointPos[i] - (defaultPos[i] ?? 0.0);
+    }
+
+    // Reorder and write joint positions by slot
+    for (const idx of this.obsJointReorder) {
+      out[offset++] = relPos[idx];
+    }
+
+    // 5. Joint velocities, CAN-slot reordered, scaled
+    for (const idx of this.obsJointReorder) {
+      out[offset++] = jointVel[idx] * this.jointVelScale;
+    }
+
+    // 6. Previous actions (23)
+    const prevActions = this.policy.lastActions;
+    for (let i = 0; i < this.numActions; i++) {
+      out[offset++] = prevActions[i];
+    }
+
+    return out;
+  }
+}
+
+
 // Export a dictionary of all observation classes
 export const Observations = {
   PrevActions,
@@ -301,5 +394,6 @@ export const Observations = {
   TrackingCommandObsRaw,
   TargetRootZObs,
   TargetJointPosObs,
-  TargetProjectedGravityBObs
+  TargetProjectedGravityBObs,
+  AsimovVelocityObs
 };
