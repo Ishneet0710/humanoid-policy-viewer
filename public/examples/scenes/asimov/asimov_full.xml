@@ -55,6 +55,7 @@
     <mesh name="right_knee_link.STL" file="RIGHT_KNEE.STL" />
     <mesh name="right_ankle_pitch_link.STL" file="RIGHT_ANKLE_A.STL" />
     <mesh name="right_ankle_roll_link.STL" file="RIGHT_ANKLE_B.STL" />
+    <mesh name="right_toe_link.STL" file="RIGHT_TOE.STL" />
     <!-- Left Leg -->
     <mesh name="left_hip_pitch_link.STL" file="LEFT_HIP_PITCH.STL" />
     <mesh name="left_hip_roll_link.STL" file="LEFT_HIP_ROLL.STL" />
@@ -62,6 +63,7 @@
     <mesh name="left_knee_link.STL" file="LEFT_KNEE.STL" />
     <mesh name="left_ankle_pitch_link.STL" file="LEFT_ANKLE_A.STL" />
     <mesh name="left_ankle_roll_link.STL" file="LEFT_ANKLE_B.STL" />
+    <mesh name="left_toe_link.STL" file="LEFT_TOE.STL" />
     <!-- Upper Body -->
     <mesh name="waist_yaw_link.STL" file="WAIST_YAW.STL" />
     <mesh name="neck_yaw_link.STL" file="NECK_YAW.STL" />
@@ -130,6 +132,16 @@
                   <geom name="left_foot3_collision" class="foot_capsule" fromto="-0.035 0.0 -0.022 0.09 0.0 -0.022"/>
                   <geom name="left_foot4_collision" class="foot_capsule" fromto="-0.035 0.015 -0.022 0.09 0.015 -0.022"/>
                   <geom name="left_foot6_collision" class="foot_capsule" fromto="0.0 0.03 -0.022 0.09 0.035 -0.022"/>
+                  <body name="left_toe_link" pos="0.10253 -0.0043664 -0.0067324" quat="1.0 0.0 0.0 0.0">
+                    <!-- Rigid toe - no joint, fixed to ankle roll -->
+                    <inertial pos="0.0320167773761624 0.000718248511968056 -0.0141312773022902" mass="0.112221237946844" fullinertia="5.5351925218088e-05 3.65130809524718e-05 8.54029969529202e-05 0 0 0" />
+                    <geom name="left_toe_link_visual" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="left_toe_link.STL" class="visual" />
+                    <geom name="left_toe1_collision" class="foot_capsule" fromto="0.01 -0.03 -0.018 0.04 -0.03 -0.018"/>
+                    <geom name="left_toe2_collision" class="foot_capsule" fromto="0.01 -0.015 -0.018 0.055 -0.015 -0.018"/>
+                    <geom name="left_toe3_collision" class="foot_capsule" fromto="0.01 0.0 -0.018 0.06 0 -0.018"/>
+                    <geom name="left_toe4_collision" class="foot_capsule" fromto="0.01 0.02 -0.018 0.055 0.02 -0.018"/>
+                    <geom name="left_toe5_collision" class="foot_capsule" fromto="0.01 0.04 -0.018 0.04 0.04 -0.018"/>
+                  </body>
                 </body>
               </body>
             </body>
@@ -173,6 +185,16 @@
                   <geom name="right_foot3_collision" class="foot_capsule" fromto="-0.035 0.0 -0.022 0.09 0.0 -0.022"/>
                   <geom name="right_foot4_collision" class="foot_capsule" fromto="-0.035 0.015 -0.022 0.09 0.015 -0.022"/>
                   <geom name="right_foot5_collision" class="foot_capsule" fromto="0.06 0.030 -0.022 0.09 0.035 -0.022"/>
+                  <body name="right_toe_link" pos="0.10247 0.0042796 -0.0067324" quat="1.0 0.0 0.0 0.0">
+                    <!-- Rigid toe - no joint, fixed to ankle roll -->
+                    <inertial pos="0.0320141754360937 -0.000816708013105544 -0.0141309094649689" mass="0.112221754054884" fullinertia="5.5358948695321e-05 3.65052769951383e-05 8.54017357052965e-05 0 0 0" />
+                    <geom name="right_toe_link_visual" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="right_toe_link.STL" class="visual" />
+                    <geom name="right_toe1_collision" class="foot_capsule" fromto="0.01 -0.04 -0.018 0.04 -0.04 -0.018"/>
+                    <geom name="right_toe2_collision" class="foot_capsule" fromto="0.01 -0.02 -0.018 0.055 -0.02 -0.018"/>
+                    <geom name="right_toe3_collision" class="foot_capsule" fromto="0.01 0.0 -0.018 0.06 0 -0.018"/>
+                    <geom name="right_toe4_collision" class="foot_capsule" fromto="0.01 0.015 -0.018 0.055 0.015 -0.018"/>
+                    <geom name="right_toe5_collision" class="foot_capsule" fromto="0.01 0.03 -0.018 0.04 0.03 -0.018"/>
+                  </body>
                 </body>
               </body>
             </body>
@@ -283,12 +305,14 @@
     <exclude body1="right_hip_yaw_link" body2="right_knee_link" />
     <exclude body1="right_knee_link" body2="right_ankle_pitch_link" />
     <exclude body1="right_ankle_pitch_link" body2="right_ankle_roll_link" />
+    <exclude body1="right_ankle_roll_link" body2="right_toe_link" />
     <exclude body1="pelvis_link" body2="left_hip_pitch_link" />
     <exclude body1="left_hip_pitch_link" body2="left_hip_roll_link" />
     <exclude body1="left_hip_roll_link" body2="left_hip_yaw_link" />
     <exclude body1="left_hip_yaw_link" body2="left_knee_link" />
     <exclude body1="left_knee_link" body2="left_ankle_pitch_link" />
     <exclude body1="left_ankle_pitch_link" body2="left_ankle_roll_link" />
+    <exclude body1="left_ankle_roll_link" body2="left_toe_link" />
     <exclude body1="pelvis_link" body2="waist_yaw_link" />
     <exclude body1="waist_yaw_link" body2="neck_yaw_link" />
     <exclude body1="neck_yaw_link" body2="neck_pitch_link" />

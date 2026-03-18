@@ -101,7 +101,7 @@ export class MuJoCoDemo {
 
     this.dragStateManager = new DragStateManager(this.scene, this.renderer, this.camera, this.container.parentElement, this.controls);
 
-    this.followEnabled = false;
+    this.followEnabled = true;
     this.followHeight = 0.75;
     this.followLerp = 0.05;
     this.followTarget = new THREE.Vector3();
@@ -293,7 +293,7 @@ export class MuJoCoDemo {
             );
             // clamp force magnitude
             const forceMagnitude = Math.sqrt(force.x * force.x + force.y * force.y + force.z * force.z);
-            const maxForce = 30.0;
+            const maxForce = 120.0;
             if (forceMagnitude > maxForce) {
               const scale = maxForce / forceMagnitude;
               force.x *= scale;
@@ -626,7 +626,7 @@ export class MuJoCoDemo {
         const dx = dm.currentWorld.x - dm.worldHit.x;
         const dy = dm.currentWorld.y - dm.worldHit.y;
         const dz = dm.currentWorld.z - dm.worldHit.z;
-        dragForceRaw = Math.min(Math.sqrt(dx*dx + dy*dy + dz*dz) * 60.0, 30.0);
+        dragForceRaw = Math.min(Math.sqrt(dx*dx + dy*dy + dz*dz) * 60.0, 120.0);
       }
     }
 
